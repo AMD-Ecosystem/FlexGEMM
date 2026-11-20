@@ -4,12 +4,26 @@ import torch
 import triton
 import triton.language as tl
 from ....utils.autotuner import triton_autotune
+from ..utils import get_platform_name
 from . import config
+
+
+def prune_bwd_input_configs(configs, nargs, **kwargs):
+    # HIP rejects a launch of 2^32 or more work-items in one grid dimension.
+    if get_platform_name() != 'hip':
+        return configs
+    M, C, V = nargs['M'], nargs['C'], nargs['V']
+    warp_size = triton.runtime.driver.active.get_current_target().warp_size
+    return [
+        c for c in configs
+        if triton.cdiv(C, c.kwargs['BK']) * triton.cdiv(M, c.kwargs['BM']) * V * c.num_warps * warp_size < 2**32
+    ]
 
 
 @triton_autotune(
     configs=config.autotune_config,
-    key=['LOGN', 'M', 'C', 'V']
+    key=['LOGN', 'M', 'C', 'V'],
+    prune_configs_by={'early_config_prune': prune_bwd_input_configs},
 )
 @triton.jit
 def indice_weighed_sum_bwd_input_kernel(
