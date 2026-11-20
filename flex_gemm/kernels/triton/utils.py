@@ -13,6 +13,9 @@ def get_platform_name():
             return 'hip'
         return 'cuda'
     return 'unknown'
+
+
+_IS_HIP = get_platform_name() == 'hip'
     
 
 def flat_grid(num_programs):
@@ -25,10 +28,10 @@ def flat_grid(num_programs):
     axis whenever a work-group of up to 1024 work-items could reach that limit.
     The last row may overrun num_programs; the kernel must mask those programs.
     """
-    if get_platform_name() != 'hip':
+    if not _IS_HIP:
         return (num_programs,)
-    rows = max(1, triton.cdiv(num_programs, (2**32 - 1) // 1024))
-    return (triton.cdiv(num_programs, rows), rows)
+    rows = max(1, -(-num_programs // ((2**32 - 1) // 1024)))
+    return (-(-num_programs // rows), rows)
 
 
 def get_num_sm():
