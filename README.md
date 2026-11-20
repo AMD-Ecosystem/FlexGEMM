@@ -32,6 +32,9 @@ cd FlexGEMM
 pip install . --no-build-isolation
 ```
 
+### AMD GPUs (ROCm)
+With a ROCm build of PyTorch, the same command builds the HIP extension. It targets the GPU in the machine by default; set `GPU_ARCHS` to a `;`-separated list (e.g. `gfx942` or `gfx1100;gfx1201`) to build for other targets. On Windows, install `triton-windows` for Triton, run the command from a Visual Studio x64 developer prompt, and set `GPU_ARCHS` (or `PYTORCH_ROCM_ARCH`) to your GPU's target, e.g. `gfx1151`.
+
 ## 💻 Usage Example
 
 Here is a minimal example demonstrating how to perform a sparse submanifold convolution using FlexGEMM:
