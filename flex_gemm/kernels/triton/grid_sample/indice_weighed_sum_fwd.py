@@ -4,6 +4,7 @@ import torch
 import triton
 import triton.language as tl
 from ....utils.autotuner import triton_autotune
+from ..utils import flat_grid
 from . import config
 
 
@@ -32,7 +33,7 @@ def indice_weighed_sum_fwd_kernel(
         weight (pointer): A pointer to the weight tensor of shape (M, V)
         output (pointer): A pointer to the output tensor of shape (M, C)
     """
-    block_id = tl.program_id(axis=0)
+    block_id = tl.program_id(axis=0) + tl.program_id(axis=1) * tl.num_programs(axis=0)
     num_k = tl.cdiv(C, BK)  # Number of blocks in K dimension
     block_id_m = block_id // num_k  # Block ID in M dimension
     block_id_k = block_id % num_k   # Block ID in K dimension
@@ -59,7 +60,7 @@ def indice_weighed_sum_fwd_kernel(
                 
     # Write back the block of the output matrix with masks.
     out_ptr = output + (offset_m[:, None] * C + offset_k[None, :])
-    out_mask = (offset_m[:, None] < M) & (offset_k[None, :] < C)
+    out_mask = (offset_m[:, None] < M) & (offset_k[None, :] < C) & (block_id_m < tl.cdiv(M, BM))
     tl.store(out_ptr, c, mask=out_mask)
 
 
@@ -77,7 +78,7 @@ def indice_weighed_sum_fwd(
     # Allocate output matrix output.
     output = torch.empty((M, C), device=input.device, dtype=input.dtype)
     # Launch the kernel.
-    grid = lambda META: (triton.cdiv(C, META['BK']) * triton.cdiv(M, META['BM']),)
+    grid = lambda META: flat_grid(triton.cdiv(C, META['BK']) * triton.cdiv(M, META['BM']))
     indice_weighed_sum_fwd_kernel[grid](
         input, indices, weight, output,
         LOGN, M, C, V,

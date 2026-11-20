@@ -15,6 +15,22 @@ def get_platform_name():
     return 'unknown'
     
 
+def flat_grid(num_programs):
+    """
+    Grid for a kernel whose program index is
+    tl.program_id(0) + tl.program_id(1) * tl.num_programs(0).
+
+    HIP rejects a launch of 2^32 or more work-items in one grid dimension (CUDA
+    limits only the block count), so on HIP the programs are spread over a second
+    axis whenever a work-group of up to 1024 work-items could reach that limit.
+    The last row may overrun num_programs; the kernel must mask those programs.
+    """
+    if get_platform_name() != 'hip':
+        return (num_programs,)
+    rows = max(1, triton.cdiv(num_programs, (2**32 - 1) // 1024))
+    return (triton.cdiv(num_programs, rows), rows)
+
+
 def get_num_sm():
     return torch.cuda.get_device_properties("cuda").multi_processor_count
     

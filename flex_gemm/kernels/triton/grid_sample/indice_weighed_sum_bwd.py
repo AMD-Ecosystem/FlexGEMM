@@ -4,26 +4,13 @@ import torch
 import triton
 import triton.language as tl
 from ....utils.autotuner import triton_autotune
-from ..utils import get_platform_name
+from ..utils import flat_grid
 from . import config
-
-
-def prune_bwd_input_configs(configs, nargs, **kwargs):
-    # HIP rejects a launch of 2^32 or more work-items in one grid dimension.
-    if get_platform_name() != 'hip':
-        return configs
-    M, C, V = nargs['M'], nargs['C'], nargs['V']
-    warp_size = triton.runtime.driver.active.get_current_target().warp_size
-    return [
-        c for c in configs
-        if triton.cdiv(C, c.kwargs['BK']) * triton.cdiv(M, c.kwargs['BM']) * V * c.num_warps * warp_size < 2**32
-    ]
 
 
 @triton_autotune(
     configs=config.autotune_config,
-    key=['LOGN', 'M', 'C', 'V'],
-    prune_configs_by={'early_config_prune': prune_bwd_input_configs},
+    key=['LOGN', 'M', 'C', 'V']
 )
 @triton.jit
 def indice_weighed_sum_bwd_input_kernel(
@@ -46,7 +33,7 @@ def indice_weighed_sum_bwd_input_kernel(
         weight (pointer): A pointer to the weight tensor of shape (M, V)
         grad_input (pointer): A pointer to the gradient of the input tensor of shape (N, C)
     """
-    block_id = tl.program_id(axis=0)
+    block_id = tl.program_id(axis=0) + tl.program_id(axis=1) * tl.num_programs(axis=0)
     num_k = tl.cdiv(C, BK)  # Number of blocks along the C dimension
     block_id_m = block_id // (num_k * V)  # Block ID along the M dimension
     block_id_v = (block_id // num_k) % V  # Block ID along the V dimension
@@ -90,7 +77,7 @@ def indice_weighed_sum_bwd_input(
     # Allocate output matrix output.
     grad_input = torch.zeros((N, C), device=grad_output.device, dtype=grad_output.dtype)
     # Launch the kernel.
-    grid = lambda META: (triton.cdiv(C, META['BK']) * triton.cdiv(M, META['BM']) * V,)
+    grid = lambda META: flat_grid(triton.cdiv(C, META['BK']) * triton.cdiv(M, META['BM']) * V)
     indice_weighed_sum_bwd_input_kernel[grid](
         grad_output, indices, weight, grad_input,
         LOGN, M, C, V,
