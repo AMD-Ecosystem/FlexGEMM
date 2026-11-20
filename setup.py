@@ -22,14 +22,20 @@ else:
 if not IS_HIP:
     cc_flag = ["--use_fast_math", "-allow-unsupported-compiler"]
 else:
-    archs = os.getenv("GPU_ARCHS", "native").split(";")
-    cc_flag = [f"--offload-arch={arch}" for arch in archs]
+    # hipcc on Windows cannot target "native"; without GPU_ARCHS there, let torch
+    # take the targets from PYTORCH_ROCM_ARCH.
+    default_archs = "" if platform.system() == "Windows" else "native"
+    archs = os.getenv("GPU_ARCHS", default_archs).split(";")
+    cc_flag = [f"--offload-arch={arch}" for arch in archs if arch]
 
 if platform.system() == "Windows":
     extra_compile_args = {
         "cxx": ["/O2", "/EHsc", "/openmp", "/permissive-", "/Zc:__cplusplus"],
         "nvcc": ["-O3", "-Xcompiler=/EHsc", "-Xcompiler=/permissive-", "-Xcompiler=/Zc:__cplusplus"] + cc_flag,
     }
+    if IS_HIP:
+        # -Xcompiler= is nvcc syntax; hipcc compiles host and device code with clang.
+        extra_compile_args["nvcc"] = ["-O3"] + cc_flag
 else:
     # Match PyTorch's CXX11 ABI setting
     cxx11_abi = "1" if torch.compiled_with_cxx11_abi() else "0"
