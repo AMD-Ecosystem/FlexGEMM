@@ -1,10 +1,27 @@
 import torch
 import triton
+import triton.language as tl
+from triton.compiler import make_backend
 from ..utils import get_autotune_config
 
 
 allow_tf32 = not torch.version.hip
 USE_ON_THE_FLY_WEIGHT_TRANSPOSE = True
+
+
+def _tf32_input_precision():
+    """
+    tl.dot input_precision for allow_tf32. Triton's AMD backend accepts 'tf32'
+    only on some targets; elsewhere use 'ieee', as when allow_tf32 is off.
+    """
+    if not torch.version.hip:
+        return 'tf32'
+    target = triton.runtime.driver.active.get_current_target()
+    options = make_backend(target).parse_options({})
+    return 'tf32' if 'tf32' in options.allowed_dot_input_precisions else 'ieee'
+
+
+TF32_PRECISION = tl.constexpr(_tf32_input_precision())
 
 
 autotune_config = get_autotune_config(
